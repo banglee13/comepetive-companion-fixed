@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Competitive Companion (Hydro Fix)",
   "description": "Parses competitive programming problems and sends them to various tools like CP Editor and CPH.",
-  "version": "2.65.0.1",
+  "version": "2.65.0.2",
   "author": "Jasper van Merle",
   "homepage_url": "https://github.com/jmerle/competitive-companion",
   "permissions": [

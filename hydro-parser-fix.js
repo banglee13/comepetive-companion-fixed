@@ -52,8 +52,9 @@
 
   const originalPatterns = HydroProblemParser.prototype.getMatchPatterns;
   HydroProblemParser.prototype.getMatchPatterns = function () {
-    const local = ['p/*', 'd/*/p/*', 'contest/*/p/*'].flatMap(path =>
-      ['http', 'https'].map(scheme => `${scheme}://192.168.8.236/${path}`));
+    const local = ['192.168.8.236', '192.168.8.233'].flatMap(host =>
+      ['p/*', 'd/*/p/*', 'contest/*/p/*'].flatMap(path =>
+        ['http', 'https'].map(scheme => `${scheme}://${host}/${path}`)));
     return [...originalPatterns.call(this), ...local];
   };
 
@@ -62,7 +63,12 @@
     const judge = HydroProblemParser.DOMAINS[host] || 'Hydro';
     const elem = htmlToElement(html);
     const task = new TaskBuilder(judge).setUrl(url);
-    task.setName(elem.querySelector('.section__title').textContent.trim());
+    const title = elem.querySelector('.section__title');
+    if (!title) throw new Error('无法读取 Hydro 题目标题，请在题目详情页面重试。');
+    // The DTOJ theme puts the problem ID immediately before the title.
+    const problemId = title.querySelector('.dtoj-title-pid');
+    if (problemId) problemId.textContent += ' ';
+    task.setName(title.textContent.replace(/\s+/g, ' ').trim());
     const pairs = samplesFrom(elem);
     if (!pairs.length && judge === 'Daimayuan Online Judge') {
       const blocks = [...elem.querySelectorAll('h2 + .code-toolbar > pre > code')];
@@ -71,8 +77,16 @@
       }
     }
     for (const pair of pairs) task.addTest(pair.input, pair.output);
-    const time = /(\d+)\s*ms/i.exec(elem.querySelector('.icon-stopwatch')?.textContent || '');
-    const memory = /(\d+)\s*MiB/i.exec(elem.querySelector('.icon-comparison')?.textContent || '');
+    // New DTOJ pages use labelled definition lists instead of Hydro's icons.
+    // Match the label, not its position: other metrics include attempts/passes.
+    const metric = label => [...elem.querySelectorAll('.dtoj-info-metrics dt')]
+      .find(node => label.test(node.textContent.trim()))?.nextElementSibling;
+    const timeText = elem.querySelector('.icon-stopwatch')?.textContent
+      || metric(/^(时间|时间限制|Time|Time Limit)$/i)?.textContent || '';
+    const memoryText = elem.querySelector('.icon-comparison')?.textContent
+      || metric(/^(内存|内存限制|Memory|Memory Limit)$/i)?.textContent || '';
+    const time = /(\d+)\s*ms/i.exec(timeText);
+    const memory = /(\d+)\s*MiB/i.exec(memoryText);
     if (!time || !memory) throw new Error('无法读取 Hydro 题目限制，请在题目详情页面重试。');
     return task.setTimeLimit(Number(time[1])).setMemoryLimit(Number(memory[1])).build();
   };

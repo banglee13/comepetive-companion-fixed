@@ -16,7 +16,12 @@ function parser(source) {
   const chrome = {runtime:{onMessage:{addListener(){},removeListener(){}}},storage:{local:{async get(){return {};}}}};
   const context = vm.createContext({console,window,document:window.document,DOMParser,chrome,crypto:webcrypto,URL,setTimeout,clearTimeout,TextEncoder,TextDecoder});
   vm.runInContext(source, context);
-  return vm.runInContext('new HydroProblemParser()',context);
+  const instance = vm.runInContext('new HydroProblemParser()',context);
+  instance.selectForUrl = async url => {
+    window.location = {href: url};
+    return vm.runInContext('getParserToUse()', context);
+  };
+  return instance;
 }
 const before = parser(original);
 const after = parser(fixed);
@@ -45,5 +50,43 @@ console.log('PASS: numbered English samples; explanation, format and solution co
 await assert.rejects(after.parse(url,page(`<h2>样例输入 1</h2>${pre('1')}<h2>样例输出 2</h2>${pre('2')}`)));
 await assert.rejects(after.parse(url,page('<h2>样例输入 1</h2>')));
 console.log('PASS: mismatched / unloaded labelled samples fail instead of sending empty samples');
+
+// DTOJ wraps each heading/code block in columns and moves limits to a <dl>.
+const column = (label, value) => `<div class="dtoj-sample-column"><div class="dtoj-sample-head"><h2>${label}</h2><button>复制</button></div>${pre(value)}</div>`;
+const sample = (id, input, output) => `<div class="dtoj-sample-pair">${column(`样例输入 ${id}`, input)}${column(`样例输出 ${id}`, output)}</div>`;
+const dtoj = `<html><body><h1 class="section__title"><form><button></button></form><span class="dtoj-title-pid">B1000</span>Example Problem</h1>
+<div class="typo richmedia" data-fragment-id="problem-description">
+<h2>输入格式</h2>${pre('ignore format')}${sample(1, '1 2\n', '3\n')}
+<h2>样例说明 1</h2>${pre('ignore explanation')}${sample(2, '3 4\n', '7\n')}
+</div><dl class="dtoj-info-metrics"><div><dt>尝试</dt><dd>999</dd></div><div><dt>内存</dt><dd>1024<small>MiB</small></dd></div><div><dt>时间</dt><dd>2000<small>ms</small></dd></div></dl></body></html>`;
+const newUrl = 'http://192.168.8.233/d/oi2026/p/1132?from=course&course=6af9e3f20dac303b6d90c47d&lesson=lesson-04';
+const selected = await after.selectForUrl(newUrl);
+assert(selected && selected.constructor.name.includes('HydroProblemParser'));
+const dtojTask = await selected.parse(newUrl, dtoj);
+assert.equal(dtojTask.name, 'B1000 Example Problem');
+assert.equal(dtojTask.url, newUrl);
+assert.equal(dtojTask.timeLimit, 2000);
+assert.equal(dtojTask.memoryLimit, 1024);
+assert.deepEqual(JSON.parse(JSON.stringify(dtojTask.tests)), [{input:'1 2\n',output:'3\n'},{input:'3 4\n',output:'7\n'}]);
+assert.equal(dtojTask.input.type, 'stdin');
+assert.equal(dtojTask.output.type, 'stdout');
+assert.equal(dtojTask.batch.size, 1);
+assert.equal(dtojTask.testType, 'single');
+await assert.rejects(after.parse(newUrl, dtoj.replace('<dt>时间</dt>', '<dt>其他</dt>')), /无法读取 Hydro 题目限制/);
+console.log('PASS: DTOJ columns, copy buttons, labelled/reordered metrics, title and CPH task schema');
+
+for (const host of ['192.168.8.233', '192.168.8.236']) {
+  for (const scheme of ['http', 'https']) {
+    for (const path of ['p/1132', 'd/oi2026/p/1132', 'contest/example/p/1132']) {
+      const candidate = await after.selectForUrl(`${scheme}://${host}/${path}?from=course&lesson=lesson-04`);
+      assert(candidate && candidate.constructor.name.includes('HydroProblemParser'));
+    }
+  }
+}
+for (const url of ['http://192.168.8.233/d/oi2026/p', 'http://192.168.8.233/login', 'http://192.168.8.233.example.com/p/1', 'http://192.168.8.2330/p/1']) {
+  assert.equal(await after.selectForUrl(url), null);
+}
+for (const pattern of before.getMatchPatterns()) assert(after.getMatchPatterns().includes(pattern));
+console.log('PASS: actual automatic parser selection for both hosts/protocols/routes/query strings; unrelated URLs excluded');
 await fs.writeFile(file('competitive-companion-fixed/js/content.js'),fixed);
 console.log('Built competitive-companion-fixed/js/content.js');
